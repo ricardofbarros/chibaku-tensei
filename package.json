@@ -1,0 +1,25 @@
+{
+  "name": "chibaku-tensei",
+  "version": "0.0.0",
+  "description": "Bundle an whole project in a single file",
+  "main": "chibaku-tensei.js",
+  "scripts": {
+    "test": "something"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ricardofbarros/chibaku-tensei.git"
+  },
+  "keywords": [
+    "bundle"
+  ],
+  "author": {
+    "name": "Ricardo Barros",
+    "email": "ricardofbarros@hotmail.com"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ricardofbarros/chibaku-tensei/issues"
+  },
+  "homepage": "https://github.com/ricardofbarros/chibaku-tensei"
+}
