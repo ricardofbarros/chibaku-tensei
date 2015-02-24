@@ -53,6 +53,9 @@ AppBundle.prototype.start = function (dirname) {
 
   var filename = self.path;
 
+
+  // TO-DO CHECK IF THIS CODE BLOCK IS STILL NEEDED
+  //
   // If filename is a relative path
   // or just a name of the module
   // we need to resolve it to the actual path
@@ -62,7 +65,7 @@ AppBundle.prototype.start = function (dirname) {
       return self.emit('finished', err);
     }
 
-    filename = AppBundle.resolvePath(self.path, dirname);
+    filename = AppBundle.resolvePath(self.path, dirname, self.ancestor);
   }
 
   self.dirname = path.dirname(filename);
@@ -107,7 +110,7 @@ AppBundle.prototype.traversal = function () {
     if (nativeModulesList.indexOf(requiredArg) < 0) {
 
       var appBundleChild = new AppBundle({
-        path: AppBundle.resolvePath(requiredArg, self.dirname),
+        path: AppBundle.resolvePath(requiredArg, self.dirname, self),
         ancestor: self
       });
 
@@ -139,27 +142,81 @@ AppBundle.prototype.traversal = function () {
 };
 
 
-AppBundle.resolvePath = function (filename, dirname) {
+AppBundle.resolvePath = function (filename, dirname, ancestor) {
+  var possibleFinalPath;
+
+  // Find the root directory
   var moduleRootDir = AppBundle.__findModuleRootDir(dirname);
 
-  var nodeModulePath = path.resolve(moduleRootDir, 'node_modules', path.basename(filename));
+  // TO-Do check if file is a basename
 
-  // If it is a node module
+  var nodeModulePath = path.resolve(moduleRootDir, 'node_modules', filename);
+
+  // If it is a node module resolve
+  // which file should be load as
+  // is specified in
+  // http://nodejs.org/api/modules.html#modules_folders_as_modules
   if (fs.existsSync(nodeModulePath)) {
-    return nodeModulePath;
+    var modulePackageJsonPath = path.resolve(nodeModulePath, 'pacakge.json');
+    var modulePackageJson;
+
+    // If the module as a package json, open it!
+    if (fs.existsSync(modulePackageJsonPath)) {
+      try {
+        modulePackageJson = JSON.parse(fs.readFileSync(modulePackageJsonPath));
+      } catch(e) {
+        console.error('Error opening package.json of module', filename);
+      }
+    }
+    var tempPath;
+
+    // Method #1 - Try loading from main key of package.json
+    if(modulePackageJson.main) {
+      tempPath = path.resolve(nodeModulePath, modulePackageJson.main);
+
+      // If has main key and the file exist, read it
+      if (fs.existsSync(tempPath)) {
+        return tempPath;
+      }
+    }
+
+    // Method #2 - Try to load { path }/index.js
+    tempPath = path.resolve(nodeModulePath, 'index.js');
+    if (fs.existsSync(tempPath)) {
+      return tempPath;
+    }
+
+    // Method #3 - Try to load { path }/index.node
+    tempPath = path.resolve(nodeModulePath, 'index.node');
+    if (fs.existsSync(tempPath)) {
+      return tempPath;
+    }
+
+    throw new Error('Module "'+ filename +'" not found in '+ ancestor.path);
   }
 
-  if(!dirname || !path.isAbsolute(dirname)) {
+  if (!dirname || !path.isAbsolute(dirname)) {
     throw new Error('something went bad on getting the parentPath');
   }
 
-  return path.resolve(dirname, filename);
+  var finalPath = path.resolve(dirname, filename);
+
+  possibleFinalPath = path.resolve(finalPath, 'index.js');
+
+  // Check if the final path is a dir
+  // if yes return the dir + index.js
+  if (fs.existsSync(possibleFinalPath)) {
+    return possibleFinalPath;
+  }
+
+  return finalPath;
 };
 
 
 // Where it finds the nearast package.josn
 // that is the root directory of that module
 AppBundle.__findModuleRootDir = function (dirPath) {
+  // TO-DO remove dependency of needing a present package.json to identify the root directory
   if (fs.existsSync(dirPath + '/package.json')) {
     return dirPath;
   } else {
@@ -182,7 +239,7 @@ AppBundle.wrap = function (input, required) {
     moduleExport = AppBundle.__resolveModuleExports(moduleExport);
 
     // Remove module.exports from the input
-    input = input.replaceBetween(hasModuleExports.index, moduleExport.lengthCount + 14, '');
+    input = input.replaceBetween(hasModuleExports.index, hasModuleExports.index + moduleExport.lengthCount + 14, '');
 
 
     // Act as module.export
@@ -197,7 +254,8 @@ AppBundle.wrap = function (input, required) {
 AppBundle.__resolveModuleExports = function (input, count) {
   var equalMatch = input.match(regex.equalExp);
 
-  // just to be sure
+  // just to be sure we
+  // dont throw any weird errors
   if(!count) {
     count = 0;
   }
@@ -207,8 +265,7 @@ AppBundle.__resolveModuleExports = function (input, count) {
     count += parseInt(matchedString.length, 10);
 
     // Remove matched regex
-    input = input.replaceBetween(equalMatch.index, matchedString.length, '');
-
+    input = input.replaceBetween(equalMatch.index, equalMatch.index + matchedString.length, '');
     var varMatch = input.match(regex.jsVariable);
 
     if(varMatch) {
