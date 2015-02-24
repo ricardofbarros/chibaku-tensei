@@ -100,7 +100,8 @@ AppBundle.prototype.traversal = function () {
       .replace('require(', '')
       .replace(')', '')
       .replace(regex.singleQuotes, '')
-      .replace(regex.doubleQuotes, '');
+      .replace(regex.doubleQuotes, '')
+      .replace(';', '');
 
     // If isnt a native module
     if (nativeModulesList.indexOf(requiredArg) < 0) {
@@ -111,8 +112,10 @@ AppBundle.prototype.traversal = function () {
       });
 
       appBundleChild.on('finished', function(err, data) {
-        self.input = self.input.replaceBetween(self.index.start, self.index.end, AppBundle.wrap(data));
-        self.writeToOutput();
+        if (data) {
+          self.input = self.input.replaceBetween(self.index.start, self.index.end, AppBundle.wrap(data));
+          self.writeToOutput();
+        }
         return self.traversal();
       });
 
