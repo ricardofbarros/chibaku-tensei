@@ -23,14 +23,13 @@ function parseInt10(val) {
 function AppBundle(options) {
   options = options || {};
 
-  this.input = {};
-
   if(!options.path) {
     throw new Error('The path to the input is required');
   }
 
-  this.input.path = options.path;
-  this.input.read = 0; // What has been read from the input
+  this.path = options.path;
+  this.read = 0; // What has been read from the input
+  this.length = 0; // original length of input
 
   this.ancestor = options.ancestor || false;
 }
@@ -41,30 +40,30 @@ util.inherits(AppBundle, EventEmitter);
 AppBundle.prototype.read = function (dirname) {
   var self = this;
 
-  var filename = self.input.path;
+  var filename = self.path;
 
   // If filename is a relative path
   // or just a name of the module
   // we need to resolve it to the actual path
-  if (!path.isAbsolute(self.input.path)) {
+  if (!path.isAbsolute(self.path)) {
     if (!dirname) {
-      var errMsg = 'If the first argument isn\'t an absolute path then the second argument must be defined';
-      return console.log(new Error(errMsg));
+      var err = new Error('If the first argument isn\'t an absolute path then the second argument must be defined');
+      return self.emit('finished', err);
     }
 
-    filename = self.__resolvePath(self.input.path, dirname);
+    filename = AppBundle.resolvePath(self.path, dirname);
   }
 
   self.dirname = path.dirname(filename);
 
   return fs.readFile(filename, 'utf8', function (err, data) {
     if (err) {
-      return console.log(err);
+      return self.emit('finished', err);
     }
 
     // Store input length & data
-    self.input.length = data.length;
-    self.input.data = data;
+    self.length = data.length;
+    self.input = data;
 
     return AppBundle.traversal();
   });
@@ -74,16 +73,18 @@ AppBundle.prototype.read = function (dirname) {
 AppBundle.prototype.traversal = function () {
   var self = this;
 
-  var match = self.input.data.match(regex.require);
+  var match = self.input.match(regex.require);
 
   if (match) {
     var matchedString = match.slice(0, 1)[0];
 
-    // get the last index read
-    var lastIndex = match.index + matchedString.length;
+    self.index = {
+      start: match.index,
+      end: match.index + matchedString.length
+    };
 
-    self.writeToOutput(lastIndex);
-
+    // Write to ouput what we have read
+    self.writeToOutput();
 
     // Replace everything until we
     // get the filename
@@ -95,33 +96,29 @@ AppBundle.prototype.traversal = function () {
 
     // If isnt a native module
     if (nativeModulesList.indexOf(requiredArg) < 0) {
+      var appBundleChild = new AppBundle({
+        path: AppBundle.resolvePath(requiredArg, self.dirname),
+        ancestor: self
+      });
 
-      return replaceRequire(input,
-        {
-          arg: requiredArg,
-          index: match.index,
-          length: matchedString.length,
-          parentPath: parentPath
-        },
-        function (err, newInput, newParentPath) {
-          if (err) {
-            return cb(err);
-          }
-
-          return scanLoop(newInput, newParentPath);
-        }
-      );
+      return appBundleChild.on('finished', function(err, data) {
+        self.input = self.input.replaceBetween(self.index.start, self.index.end, AppBundle.wrap(data));
+        return self.traversal();
+      });
     } else {
-      return scanLoop(input, parentPath);
+      return self.traversal();
     }
   } else {
-    return cb(null, this.output);
+    // write the rest of the input to the ouput
+    this.output += this.input;
+
+    return self.emit('finished', null, this.output);
   }
 };
 
 
-AppBundle.__resolvePath = function (filename, parentPath) {
-  var moduleRootDir = findModuleRootDir(parentPath);
+AppBundle.resolvePath = function (filename, parentPath) {
+  var moduleRootDir = AppBundle.__findModuleRootDir(parentPath);
 
   var nodeModulePath = path.resolve(moduleRootDir, 'node_modules', path.basename(filename));
 
@@ -144,53 +141,42 @@ AppBundle.__resolvePath = function (filename, parentPath) {
 
 // Where it finds the nearast package.josn
 // that is the root directory of that module
-var findModuleRootDir = function findNearestPackageJSONLoop(dirPath) {
+AppBundle.__findModuleRootDir = function (dirPath) {
   if (fs.existsSync(dirPath + '/package.json')) {
     return dirPath;
   } else {
-    return findNearestPackageJSONLoop(path.dirname(dirPath));
+    return this.__findModuleRootDir(path.dirname(dirPath));
   }
 };
 
 
-var replaceRequire = function (input, required, cb) {
+AppBundle.wrap = function (input, required) {
   var wrapper = [
     '(function() {\n',
     '\n})();'
   ];
 
-  return readInput(required.arg, required.parentPath, function(err, bundle, newParentPath) {
-    if (err) {
-      return console.log(err);
-    }
+  var hasModuleExports = input.match(regex.moduleExp);
 
-    var hasModuleExports = bundle.match(regex.moduleExp);
+  if(hasModuleExports) {
+    // why +14 ? count how much characters 'module.exports' has
+    var moduleExport = input.substring(hasModuleExports.index + 14, input.length);
+    moduleExport = AppBundle.__resolveModuleExports(moduleExport);
 
-    if(hasModuleExports) {
-      // why +14 ? count how much chars 'module.exports' has
-      var moduleExport = bundle.substring(hasModuleExports.index + 14, bundle.length);
-      moduleExport = resolveModuleExports(moduleExport);
-
-      // Remove module.exports from the bundle
-      bundle = bundle.replaceBetween(hasModuleExports.index, moduleExport.lengthCount + 14, '');
+    // Remove module.exports from the input
+    input = input.replaceBetween(hasModuleExports.index, moduleExport.lengthCount + 14, '');
 
 
-      // Act as module.export
-      bundle += '\n return '+ moduleExport.variable + ';';
-    }
+    // Act as module.export
+    input += '\n return '+ moduleExport.variable + ';';
+  }
 
-    // Wrap the script
-    bundle = wrapper[0] + bundle + wrapper[1];
-
-    input = input.replaceBetween(required.index, required.length, bundle);
-
-    console.log(input);
-    //return cb(err, bundle, newParentPath)
-  });
+  // wrap the script
+  return wrapper[0] + input + wrapper[1];
 };
 
 
-var resolveModuleExports = function resolveModuleExportsFn(input, count) {
+AppBundle.__resolveModuleExports = function (input, count) {
   var equalMatch = input.match(regex.equalExp);
 
   // just to be sure
@@ -208,7 +194,7 @@ var resolveModuleExports = function resolveModuleExportsFn(input, count) {
     var varMatch = input.match(regex.jsVariable);
 
     if(varMatch) {
-      return resolveModuleExportsFn(input, count);
+      return this.__resolveModuleExports(input, count);
     } else {
       throw new Error('Something is wrong');
     }
@@ -223,10 +209,14 @@ var resolveModuleExports = function resolveModuleExportsFn(input, count) {
 };
 
 
-AppBundle.prototype.writeToOutput = function (index) {
-  this.output = this.input.substring(0, index);
-  this.input = this.input.substring(index + 1, this.input.length);
+AppBundle.prototype.writeToOutput = function () {
+  this.output = this.input.substring(0, this.index.end);
+  this.input = this.input.substring(this.index.end + 1, this.input.length);
+  this.read += this.index.end;
 };
+
+
+
 
 var appBundle = new AppBundle({
   path: __dirname + '/test.js'
