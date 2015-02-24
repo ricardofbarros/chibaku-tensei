@@ -1,14 +1,14 @@
 {
-  "name": "chibaku-tensei",
+  "name": "app-bundle",
   "version": "0.0.0",
   "description": "Bundle an whole project in a single file",
-  "main": "chibaku-tensei.js",
+  "main": "app-bundle.js",
   "scripts": {
     "test": "something"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ricardofbarros/chibaku-tensei.git"
+    "url": "https://github.com/ricardofbarros/app-bundle.git"
   },
   "keywords": [
     "bundle"
@@ -19,7 +19,10 @@
   },
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/ricardofbarros/chibaku-tensei/issues"
+    "url": "https://github.com/ricardofbarros/app-bundle/issues"
   },
-  "homepage": "https://github.com/ricardofbarros/chibaku-tensei"
+  "homepage": "https://github.com/ricardofbarros/app-bundle",
+  "dependencies": {
+    "semver": "^4.3.0"
+  }
 }
