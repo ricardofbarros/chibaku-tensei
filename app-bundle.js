@@ -114,8 +114,12 @@ AppBundle.prototype.traversal = function () {
       appBundleChild.on('finished', function(err, data) {
         if (data) {
           self.input = self.input.replaceBetween(self.index.start, self.index.end, AppBundle.wrap(data));
-          self.writeToOutput();
+          self.index.end += data.length;
+        } else {
+          self.input = self.input.replaceBetween(self.index.start, self.index.end, 'null;');
         }
+
+        self.writeToOutput();
         return self.traversal();
       });
 
@@ -225,11 +229,9 @@ AppBundle.__resolveModuleExports = function (input, count) {
 
 AppBundle.prototype.writeToOutput = function () {
   this.output += this.input.substring(0, this.index.end);
-  this.input = this.input.substring(this.index.end + 1, this.input.length);
+  this.input = this.input.substring(this.index.end, this.input.length);
   this.read += this.index.end;
 };
-
-
 
 
 var appBundle = new AppBundle({
