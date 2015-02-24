@@ -5,13 +5,23 @@ var nativeModulesList = require('./lib/nativeModulesList');
 var regex = require('./lib/regex');
 var util = require('util');
 var EventEmitter = require('events').EventEmitter;
+var semver = require('semver');
+var extend = require('extend');
+
 
 var mutexSemaphores = [];
+
+
+if (semver.gt('0.12.0', process.version)) {
+  var pathExtension = require('./lib/path');
+  extend(true, path, pathExtension);
+}
+
 
 // extend string proto object
 // very useful method
 String.prototype.replaceBetween = function(start, end, what) {
-  return this.substring(0, start) + what + this.substring(start + end);
+  return this.substring(0, start) + what + this.substring(end);
 };
 
 // abbreviation of parseInt(val, 10)
@@ -32,12 +42,13 @@ function AppBundle(options) {
   this.length = 0; // original length of input
 
   this.ancestor = options.ancestor || false;
+  this.output = '';
 }
 
 util.inherits(AppBundle, EventEmitter);
 
 
-AppBundle.prototype.read = function (dirname) {
+AppBundle.prototype.start = function (dirname) {
   var self = this;
 
   var filename = self.path;
@@ -65,7 +76,7 @@ AppBundle.prototype.read = function (dirname) {
     self.length = data.length;
     self.input = data;
 
-    return AppBundle.traversal();
+    return self.traversal();
   });
 };
 
@@ -83,9 +94,6 @@ AppBundle.prototype.traversal = function () {
       end: match.index + matchedString.length
     };
 
-    // Write to ouput what we have read
-    self.writeToOutput();
-
     // Replace everything until we
     // get the filename
     var requiredArg = matchedString
@@ -96,16 +104,23 @@ AppBundle.prototype.traversal = function () {
 
     // If isnt a native module
     if (nativeModulesList.indexOf(requiredArg) < 0) {
+
       var appBundleChild = new AppBundle({
         path: AppBundle.resolvePath(requiredArg, self.dirname),
         ancestor: self
       });
 
-      return appBundleChild.on('finished', function(err, data) {
+      appBundleChild.on('finished', function(err, data) {
         self.input = self.input.replaceBetween(self.index.start, self.index.end, AppBundle.wrap(data));
+        self.writeToOutput();
         return self.traversal();
       });
+
+      return appBundleChild.start();
     } else {
+      // Write to ouput what we have read
+      self.writeToOutput();
+
       return self.traversal();
     }
   } else {
@@ -117,8 +132,8 @@ AppBundle.prototype.traversal = function () {
 };
 
 
-AppBundle.resolvePath = function (filename, parentPath) {
-  var moduleRootDir = AppBundle.__findModuleRootDir(parentPath);
+AppBundle.resolvePath = function (filename, dirname) {
+  var moduleRootDir = AppBundle.__findModuleRootDir(dirname);
 
   var nodeModulePath = path.resolve(moduleRootDir, 'node_modules', path.basename(filename));
 
@@ -127,15 +142,11 @@ AppBundle.resolvePath = function (filename, parentPath) {
     return nodeModulePath;
   }
 
-
-  if(!parentPath || !path.isAbsolute(parentPath)) {
+  if(!dirname || !path.isAbsolute(dirname)) {
     throw new Error('something went bad on getting the parentPath');
   }
 
-  // Get directory
-  parentPath = path.dirname(parentPath);
-
-  return path.resolve(parentPath, filename);
+  return path.resolve(dirname, filename);
 };
 
 
@@ -210,7 +221,7 @@ AppBundle.__resolveModuleExports = function (input, count) {
 
 
 AppBundle.prototype.writeToOutput = function () {
-  this.output = this.input.substring(0, this.index.end);
+  this.output += this.input.substring(0, this.index.end);
   this.input = this.input.substring(this.index.end + 1, this.input.length);
   this.read += this.index.end;
 };
@@ -225,3 +236,6 @@ var appBundle = new AppBundle({
 appBundle.on('finished', function(err, data) {
   console.log(data);
 });
+
+
+appBundle.start();
